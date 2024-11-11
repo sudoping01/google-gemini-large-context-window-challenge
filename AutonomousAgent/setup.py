@@ -13,6 +13,7 @@ setup(
         'google-auth-oauthlib',
         'google-auth-httplib2',
         'google-api-python-client',
+        'bs4',
         'google-generativeai',
         'AWSIoTPythonSDK==1.5.4',
         'langchain-google-genai',
