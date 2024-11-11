@@ -1,4 +1,4 @@
-from caytu_ai.models.tool_models import ParamConfig, ItemConfig, ToolConfig
+from ..models.tool_models import ParamConfig, ItemConfig, ToolConfig
 from typing import List, Dict, Any
 from google.generativeai import protos
 
@@ -54,6 +54,8 @@ IOT_TOOLS = [
         required=["topics", "states"]
         )
 ]
+
+
 
 
 
@@ -157,119 +159,11 @@ NEWS_TOOLS = [
     )
 ]
 
-
-def convert_tools_to_google_genai_format(TOOLS:List[ToolConfig]) -> list[protos.Tool]:
-    TYPE_MAP = {
-                "object" : protos.Type.OBJECT, 
-                "integer" : protos.Type.INTEGER, 
-                "array": protos.Type.ARRAY, 
-                "string" : protos.Type.STRING, 
-              }
-    
-    tools: List[protos.Tool] = []
-    
-    if len(TOOLS) > 0:
-        for tool in TOOLS:
-            if not tool.parameters:
-                tools.append(protos.Tool(function_declarations=[
-                    protos.FunctionDeclaration(
-                        name=tool.name,
-                        description=tool.description
-                    )
-                ]))
-                continue
-            properties = {}
-            for param in tool.parameters:
-                if param.type == "array":
-                    properties[param.name] = protos.Schema(
-                        type=TYPE_MAP[param.type],
-                        description=param.description,
-                        items=protos.Schema(
-                            type=TYPE_MAP[param.items.type],
-                            enum=param.items.enum if param.items.enum else None
-                        )
-                    )
-                else:
-                    properties[param.name] = protos.Schema(
-                        type=TYPE_MAP[param.type],
-                        description=param.description
-                    )
-            tool_declaration = protos.Tool(function_declarations=[
-                protos.FunctionDeclaration(
-                    name=tool.name,
-                    description=tool.description,
-                    parameters=protos.Schema(
-                        type=protos.Type.OBJECT,
-                        properties=properties,
-                        required=tool.required
-                    ) if properties else None
-                )
-            ])
-            tools.append(tool_declaration)
-        return tools
-
-    return []
-
-
-
-def convert_tools_to_openai_format(TOOLS:List[List] = []) -> List[Dict[str, Any]]:
-    tools = []
-
-    for tool_list in TOOLS:
-        if not tool_list:
-            continue
-            
-        for tool in tool_list:
-            properties = {}
-            
-            if tool.parameters:
-
-                for param in tool.parameters:
-                    property_dict = {
-                        "type": param.type,
-                        "description": param.description
-                    }
-                    
-                    if param.type == "array" and param.items:
-                        property_dict["items"] = {
-                            "type": param.items.type
-                        }
-                        
-                        if param.items.enum:
-                            property_dict["items"]["enum"] = param.items.enum
-                    
-                    if param.type == "integer":
-                        if param.name == "id":
-                            property_dict["minimum"] = 0
-                        elif param.name == "number_of_mail":
-                            property_dict["minimum"] = 1
-                    
-                    properties[param.name] = property_dict
-            else:
-                
-                properties["execute"] = {
-                    "type": "boolean",
-                    "description": "Set to true to execute this function",
-                }
-                tool.required = ["execute"]  
-            
-            function_dict = {
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": {
-                        "type": "object",
-                        "properties": properties,
-                        "required": tool.required,
-                        "additionalProperties": False
-                    }
-                }
-            }
-            
-            tools.append(function_dict)
-    
-    for tool in tools:
-        tool["function"]["parameters"]["strict"] = True
-    
-    return tools
+DOCUMENT_TOOL = [
+    ToolConfig(
+        name="get_document_content",
+        description="use this to get the describtive document about the OpenIoT",
+        parameters=[],
+        required=[]
+    )
+]
