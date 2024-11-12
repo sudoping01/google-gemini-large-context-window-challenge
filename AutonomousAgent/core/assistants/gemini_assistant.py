@@ -21,6 +21,7 @@ class GoogleAgent(AssistantInterface):
         self.video_analyser: genai.GenerativeModel = None
         self.llm:genai.GenerativeModel = self.config_llm(api_key=api_key, model_name=model_name)
         self.current_video:Dict[Any:Any] = None 
+        
          
 
 
@@ -34,56 +35,38 @@ class GoogleAgent(AssistantInterface):
         model.send_message(context)
         return model 
 
+    def analyse_video(self, path ): 
 
-    def analyse_video(self, path):
-    
-        prompt = """Objective: Analyze the provided video footage to detect suspicious activities 
-        that may indicate potential theft or burglary and identify instances of human presence 
-        or absence in the frame. """
-        
-        mime_type, _ = mimetypes.guess_type(path)
-        if not mime_type:
-            
-            mime_type = 'video/mp4'
+        prompt = """
+            Objective: Analyze the provided video footage to:
+            - Detect suspicious activities that may indicate potential theft or burglary
+            - Identify instances of human presence or absence in the frame
+            - Provide detailed observations of any notable events or patterns
+            """
+        video_file = genai.upload_file(path=path)
 
-       
-        video_file = genai.upload_file(
-            path=path,
-            mime_type=mime_type
-        )
-
-        
         while video_file.state.name == "PROCESSING":
             print('.', end='')
             time.sleep(10)
             video_file = genai.get_file(video_file.name)
 
-        
         if video_file.state.name == "FAILED":
-            raise ValueError(f"Video processing failed: {video_file.state.name}")
+            raise ValueError(video_file.state.name)
 
-        try:
-            
-            response = self.video_analyser.generate_content(
-                [video_file, prompt],
-                request_options={"timeout": 600}
-            )
-
-           
-            genai.delete_file(video_file.name)
-
-            
-            return {
-                "Date": date.today(),
-                "Time": datetime.now(),
-                "Video Description": response.text
-            }
+        response = self.video_analyser.generate_content([video_file, prompt],
+                                  request_options={"timeout": 600})
         
-        except Exception as e:
+        genai.delete_file(video_file.name) # delect the file
 
-            genai.delete_file(video_file.name)
-            raise e
-        
+        description = {
+                        "Data" : date.today(), 
+                        "Time" : datetime.now(), 
+                        "Video Description" : response.text
+
+                     }
+
+        return description
+                
 
     def generate_tools(self, service_handler) -> list[protos.Tool]:
 
