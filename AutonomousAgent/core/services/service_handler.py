@@ -23,6 +23,7 @@ class Handler:
 
         self.config:dict[str:Any]       = config
         self.context_lock:Lock          = Lock()
+        self.workspace_lock:Lock        = Lock()
         self.update_queue:Queue         = Queue()
         
         self.Document = None 
@@ -92,7 +93,6 @@ class Handler:
     def _load_document(self,path):
         with open(path, "r") as file :
             self.Document = file.readlines()
-            print(len(self.Document))
             file.close()
 
 
@@ -120,11 +120,16 @@ class Handler:
     def _google_update_loop(self):
         while True:
             if self.google_object :
-                self.google_data = {
-                                    "mail": self.google_object.get_emails(max_results=1000),
-                                    "calendar": self.google_object.get_events(max_results=1000)
-                                   }
+                with self.workspace_lock : 
+                    self.google_data = {
+                                        "mail": self.google_object.get_emails(max_results=1000),
+                                        "calendar": self.google_object.get_events(max_results=1000)
+                                      }
             time.sleep(300)   
+
+    def get_worspace_data(self):
+        with self.workspace_lock : 
+            return self.google_data
 
     def _update_news(self):
         if self.webscraper : 
