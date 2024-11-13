@@ -11,7 +11,6 @@ from typing import Dict, Any, List, Optional, Callable
 from itertools import islice 
 from datetime import datetime
 
-
 class Handler:
     def __init__(self, config: dict) -> None:
         self.iot_object: IoT            = None 
@@ -70,20 +69,7 @@ class Handler:
 
                      time.sleep(5)
                      self.context["IoTSystemAvailable"] = self.iot_object.feature_topics
-
-                # job = ''
-                # if self.iot_object : 
-                #     job+=str(self.iot_object.context["function"])
-
-                # if self.google_object : 
-                #     job+=str(self.google_object.context["function"])
-
-                # if self.webscraper: 
-                #     job+=str(self.webscraper.context["function"])
-
-                # self.context["Context"]["You"]= self.context["Context"]["You"].format(self.config["assistant_name"], job)
-                # del job #clean 
-
+ 
                 file.close()
 
         except Exception as e: 
@@ -97,22 +83,9 @@ class Handler:
 
 
     def _iot_update_loop(self):
-        
         while True:
-
-            # all_topics = {}
-
             if self.iot_object:
                 if self.iot_object.get_iot_status():
-
-
-            # #     for thing in self.iot_object.feature_topics :
-            # #         all_topics.update(self.iot_object.feature_topics[thing])
-
-            #     iot_data = {
-            #                 "Available Topics": all_topics if self.iot_object.get_iot_status() else None,
-            #                }
-                
                     self.update_queue.put(("iot", self.iot_object.feature_topics))
             time.sleep(3)  
 
@@ -120,16 +93,17 @@ class Handler:
     def _google_update_loop(self):
         while True:
             if self.google_object :
+                time.sleep(60) #1min 
                 with self.workspace_lock : 
                     self.google_data = {
                                         "mail": self.google_object.get_emails(max_results=1000),
                                         "calendar": self.google_object.get_events(max_results=1000)
                                       }
-            time.sleep(300)   
-
+               
     def get_worspace_data(self):
         with self.workspace_lock : 
             return self.google_data
+
 
     def _update_news(self):
         if self.webscraper : 
@@ -160,95 +134,3 @@ class Handler:
     def get_context(self):
         with self.context_lock:
             return json.dumps(self.context.copy())
-
-
-
-class ServiceHandler(ServiceInterface):
-    def __init__(self, service_config:Dict[str,Dict[str,str]]):
-        super().__init__()
-        self.service_handler:Handler = Handler(config=service_config)
-
-        self.FUNCTION_MAP:Dict[str,Callable] = {
-                                                    "iot_get_states" : self.iot_get_states, 
-                                                    "iot_set_states": self.iot_set_states,
-                                                    "get_mails": self.get_mails, 
-                                                    "send_mail": self.send_mail, 
-                                                    "get_events": self.get_events, 
-                                                    "set_event": self.set_event, 
-                                                    "get_news": self.get_news
-                                              }
-        
-
-    def iot_get_states(self,topics:List[str]) -> Dict[str,Any]:
-        response: Dict[str, Any] = {}
-        if self.service_handler.iot_object.iot_status:
-            for topic in topics:
-                response[topic] = self.service_handler.iot_object.get_state(topic=topic)
-            return response
-        return {"states" : "Unvalable", "Raison" : "IoT System is disconnected"}
-
-
-    def iot_set_states(self, topics:List[str], states:List[str]) -> Dict[str,str]:
-       
-        response: Dict[str, str] = {}
-        if self.service_handler.iot_object.iot_status:
-           
-            for topic in topics:
-                response[topic] = self.service_handler.iot_object.set_state(topic=topic, state=states[topics.index(topic)])
-            return response
-
-        return {"Operation" : "Failed", "Raison" : "Iot System is disconnected"}
-
-
-    def get_news(self) -> str:
-        return {"Source" : self.service_handler.get_news_source(), "News" :self.service_handler.get_news()}
-    
-
-    def get_mails(self,id:Optional[int]=None, number_of_mail:Optional[int]=None) -> Dict[str,Any]:
-        emails = self.service_handler.get_mails()
-        response: Dict[str, Any] = {"Total Mails": len(emails)}
-
-        if not emails:
-            response["Emails"] = {"content": "empty (No Mail)"}
-            return response
-
-        if number_of_mail : 
-                response["Emails"] = dict(islice(emails.items(), min(len(emails), number_of_mail)))
-        elif id:
-            response["Emails"] = self.service_handler.get_mails()[int(id)]
-        else : 
-            response["Emails"] = dict(islice(emails.items(), min(len(emails), 3)))
-
-        return response    
-
-
-    def send_mail(self, to:str, subject:str, body:str) -> Dict[str,Any] :
-        action = self.service_handler.google_object.send_email(to=to, subject=subject, body=body)
-        return {"mail status": "sent"} if action else {"mail status": "failed"}
-    
-
-    def get_events(self) -> Dict[int, Dict[str, str]]:
-        return self.service_handler.get_events()
-
-
-    def set_event(self, summary:str, start_time:str, end_time:str, location:Optional[str] = None, description:Optional[str] = None) -> Dict[str,Any]:
-
-        link = self.service_handler.google_object.set_event(
-            summary=summary,
-            location=location,
-            description=description,
-            start_time=datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S'),
-            end_time=datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
-        )
-        return {"event": "created", "link": link} if link else {"event": "failed"}
-    
-
-    def get_context(self):
-        return self.service_handler.get_context()
-    
-
-    def invoke(self,function_name:str, params:Dict[str,Any])-> Dict[str,Any]:
-        
-        if function_name in self.FUNCTION_MAP :
-            return self.FUNCTION_MAP[function_name](**params)
-        return {"Error" : f" {function_name} does't not find"}
