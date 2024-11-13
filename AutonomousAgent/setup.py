@@ -3,8 +3,8 @@ from setuptools import setup, find_packages
 setup(
     name='AutonomousAgent',
     version='0.0.1',    
-    description='caytu ai packages',
-    url='https://github.com/CAYTU',
+    description='autonomous ai agent connected to iot system, google workspace, news articles and videos flux packages. Able to make decison and performa the necessary action base on the analyzed data.',
+    url='https://github.com/sudoping01',
     author='Seydou DIALLO',
     author_email='mail.seydou.diallo@gmail.com',
     license='BSD 2-clause',
