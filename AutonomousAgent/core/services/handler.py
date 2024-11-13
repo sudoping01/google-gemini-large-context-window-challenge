@@ -87,6 +87,10 @@ class ServiceHandler(ServiceInterface):
     def get_all_iot_data(self):
         return self.service_handler.iot_object.get_all_data()
     
+    def get_all_workspace_data(self):
+        return self.service_handler.get_worspace_data()
+    
+    
 
     def get_context(self):
         return self.service_handler.get_context()
