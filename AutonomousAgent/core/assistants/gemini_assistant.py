@@ -3,11 +3,9 @@ import google.generativeai as genai
 from google.generativeai import protos
 import google.api_core.exceptions
 from typing import Dict, List, Any
-import time, json
+import time, json, os
 from pathlib import Path
 from datetime import date, datetime
-import mimetypes
-
 
 
 from ...core.services.handler import ServiceHandler
@@ -16,58 +14,102 @@ from tenacity import retry, wait_random_exponential, stop_after_attempt
 
 
 class GoogleAgent(AssistantInterface):
-    def __init__(self, service_config:Dict[str,Dict], api_key:str, model_name:str):
+    def __init__(self, service_config:Dict[str,Dict], api_key:str, model_name:str, videos_folder:str):
         self.service_handler:ServiceHandler = ServiceHandler(service_config=service_config)
         self.video_analyser: genai.GenerativeModel = None
         self.llm:genai.GenerativeModel = self.config_llm(api_key=api_key, model_name=model_name)
-        self.current_video:Dict[Any:Any] = None 
-        
-         
-
+        self.video_flux_description:List[Dict]= []
+        self.video_file_already_analyse:List[str] = []  
+        self.videos_folder = videos_folder
+        self.videos_path:List[str] = []
 
     def config_llm(self, api_key, model_name):
         genai.configure(api_key=api_key)
         tools = self.generate_tools(self.service_handler)
-        model  = genai.GenerativeModel(model_name=model_name, tools=tools)
-        self.video_analyser = model
+        model = genai.GenerativeModel(model_name=model_name, tools=tools)  
+        self.video_analyser = genai.GenerativeModel(model_name=model_name)  
         model = model.start_chat(enable_automatic_function_calling=True)
         context = self.service_handler.get_context()
         model.send_message(context)
         return model 
+    
+    def get_all_mp4_files(self,parent_folder):
+        mp4_files = []
+        for root, dirs, files in os.walk(parent_folder):
+            for file in files:
+                if file.endswith('.mp4'):
+                    full_path = os.path.join(root, file)
+                    mp4_files.append(full_path)
+        return mp4_files
 
-    def analyse_video(self, path ): 
 
-        prompt = """
-            Objective: Analyze the provided video footage to:
-            - Detect suspicious activities that may indicate potential theft or burglary
-            - Identify instances of human presence or absence in the frame
-            - Provide detailed observations of any notable events or patterns
-            """
-        video_file = genai.upload_file(path=path)
-
-        while video_file.state.name == "PROCESSING":
-            print('.', end='')
-            time.sleep(10)
-            video_file = genai.get_file(video_file.name)
-
-        if video_file.state.name == "FAILED":
-            raise ValueError(video_file.state.name)
-
-        response = self.video_analyser.generate_content([video_file, prompt],
-                                  request_options={"timeout": 600})
+    def analyse_video(self,path: str, timeout: int = 600):
+        video_path = Path(path)
+        if not video_path.exists():
+            raise FileNotFoundError(f"Video file not found at {path}")
         
-        genai.delete_file(video_file.name) # delect the file
-
-        description = {
-                        "Data" : date.today(), 
-                        "Time" : datetime.now(), 
-                        "Video Description" : response.text
-
-                     }
-
-        return description
+        if not video_path in self.video_file_already_analyse :
+    
+            context = """
+                        Analyse carefully this video :
+                        - Detect any suspicious activities that may suggest theft or burglary.
+                        - Identify humain presence or absence
+                        - Act like as a security agent
+                        - Your response should be short as possible, clear, concise and should contain only the result of your analyse.
+                        - Note that you ouput is for an llm, then make sure it will be avaible to process it.
+                        - Your ouput should contain anything else, only your analyse resultat. No additional information just your analyse result.
+                    """
+            try:
+                
+                video_file = genai.upload_file(path=str(video_path))
+                start_time = time.time()
+                while video_file.state.name == "PROCESSING":
+                    if time.time() - start_time > timeout:
+                        genai.delete_file(video_file.name)  
+                        raise TimeoutError("Video processing exceeded timeout limit")
+                        
+                    print('.', end='', flush=True)
+                    time.sleep(10)
+                    video_file = genai.get_file(video_file.name)
+                
+                if video_file.state.name == "FAILED":
+                    raise ValueError(f"Video processing failed: {video_file.state.message}")
+                
+                
+                response = self.video_analyser.generate_content(
+                    [video_file, context],
+                    request_options={"timeout": timeout}
+                )
                 
 
+                try:
+                    genai.delete_file(video_file.name)
+                except Exception as e:
+                    print(f"Warning: Failed to delete temporary file: {e}")
+                
+                description = {
+                    "Date": date.today().isoformat(),
+                    "Time": datetime.now().isoformat(),
+                    "Video Description": response.text,
+                    "Analysis Duration": f"{time.time() - start_time:.2f} seconds"
+                }
+
+                
+                return description
+                
+            except Exception as e:
+                try:
+                    genai.delete_file(video_file.name)
+                except:
+                    pass
+                #raise e
+        return None 
+    
+
+    
+    def deamon(self):
+        pass 
+           
     def generate_tools(self, service_handler) -> list[protos.Tool]:
 
         TYPE_MAP = {
@@ -136,14 +178,33 @@ class GoogleAgent(AssistantInterface):
 
     def get_systems_data(self):
         data:Dict[str, Any] = {}
-
+    
+        print("Pulling IoT Data")
         iot_data = {"IoT_System_Data" : self.service_handler.get_all_iot_data()}
         data.update(iot_data)
 
+        print("Pulling Worspace Data")
         worspace_data = {"Worspace" : 
             self.service_handler.get_all_workspace_data()
         }
+
         data.update(worspace_data)
+
+        #videos = ["0.mp4", "1.mp4", "2.mp4", "3.mp4", "4.mp4"]
+
+        print('Anylyse videos........')
+        videos = self.get_all_mp4_files(parent_folder=self.videos_folder)
+
+        for video in videos[:2] : 
+            print(f"Analysing {video} .......")
+            descript = self.analyse_video(path=video)
+
+            if descript:
+                self.video_flux_description.append(descript)
+                time.sleep(2)
+
+        video_flux = {"Video Flux Description" : self.video_flux_description}
+        data.update(video_flux)
 
         return data
     
@@ -220,29 +281,13 @@ class GoogleAgent(AssistantInterface):
 
         
 
-    def entry_point(self,query): 
+    def entry_point(self,query=None): 
         data = self.get_systems_data()
+        content = f"""
+                    Analyse and Decide what to do. if there is an action to do, use the necessary tool to perform that action. If there is no necessary action to do, do not do anything.
 
-        with open("file.json", "w") as file : 
-            json.dump(data, file)
-            file.close()
-
-        mail  = input("Mail : ")
-        iot   = input("IoT : ")
-        video = input("Video")
-
-
-
-        prompt = f"""
-                        Analyse and Decide what to do. If there is not necessary action to do, do nothing.
-
-                         IoTSystem : {iot} {data["IoT_System_Data"]}, 
-
-                         Worspace:{mail} {data["Worspace"]} 
-
-                         Video: {video} 
-
+                    Data : {data}
                     """
-        response = self.process_user_query(query=prompt)
+        response = self.process_user_query(query=content)
         return response
     
