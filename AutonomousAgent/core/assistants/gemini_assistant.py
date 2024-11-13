@@ -6,6 +6,8 @@ from typing import Dict, List, Any
 import time, json, os
 from pathlib import Path
 from datetime import date, datetime
+from threading import Thread, Lock
+
 
 
 from ...core.services.handler import ServiceHandler
@@ -22,6 +24,15 @@ class GoogleAgent(AssistantInterface):
         self.video_file_already_analyse:List[str] = []  
         self.videos_folder = videos_folder
         self.videos_path:List[str] = []
+
+        self.video_data_lock = Lock()
+        self.iot_data_lock          = Lock()
+        self.workspace_lock         = Lock()
+
+        self.iot_data:Dict          = {}
+        self.workspace_data:Dict    = {}
+        self.video_flux_data:Dict   = {}
+
 
     def config_llm(self, api_key, model_name):
         genai.configure(api_key=api_key)
@@ -41,15 +52,31 @@ class GoogleAgent(AssistantInterface):
                     full_path = os.path.join(root, file)
                     mp4_files.append(full_path)
         return mp4_files
+    
+    def _update_process(self):
+        with self.iot_data_lock : 
+            self.iot_data = self.service_handler.get_all_iot_data()
+
+        with self.workspace_lock : 
+            self.workspace_data = self.service_handler.get_all_workspace_data()
+
+        with self.video_data_lock : 
+            videos = self.get_all_mp4_files(parent_folder=self.videos_folder)
+
+            for video in videos :
+                if not video in self.video_file_already_analyse: 
+                    descript = self.analyse_video(path=video)
+                    if descript:
+                        self.video_flux_data.update(descript)
+                        time.sleep(1) # being kind to the server 
+        time.sleep(1)
 
 
     def analyse_video(self,path: str, timeout: int = 600):
-        video_path = Path(path)
-        if not video_path.exists():
-            raise FileNotFoundError(f"Video file not found at {path}")
+            video_path = Path(path)
+            if not video_path.exists():
+                raise FileNotFoundError(f"Video file not found at {path}")
         
-        if not video_path in self.video_file_already_analyse :
-    
             context = """
                         Analyse carefully this video :
                         - Detect any suspicious activities that may suggest theft or burglary.
@@ -69,7 +96,6 @@ class GoogleAgent(AssistantInterface):
                         raise TimeoutError("Video processing exceeded timeout limit")
                         
                     print('.', end='', flush=True)
-                    time.sleep(10)
                     video_file = genai.get_file(video_file.name)
                 
                 if video_file.state.name == "FAILED":
@@ -102,12 +128,12 @@ class GoogleAgent(AssistantInterface):
                     genai.delete_file(video_file.name)
                 except:
                     pass
-                #raise e
-        return None 
+                
+            return None 
     
 
     
-    def deamon(self):
+    def run_deamon(self): # background autononous agent
         pass 
            
     def generate_tools(self, service_handler) -> list[protos.Tool]:
@@ -177,37 +203,10 @@ class GoogleAgent(AssistantInterface):
     
 
     def get_systems_data(self):
-        data:Dict[str, Any] = {}
-    
-        print("Pulling IoT Data")
-        iot_data = {"IoT_System_Data" : self.service_handler.get_all_iot_data()}
-        data.update(iot_data)
-
-        print("Pulling Worspace Data")
-        worspace_data = {"Worspace" : 
-            self.service_handler.get_all_workspace_data()
-        }
-
-        data.update(worspace_data)
-
-        #videos = ["0.mp4", "1.mp4", "2.mp4", "3.mp4", "4.mp4"]
-
-        print('Anylyse videos........')
-        videos = self.get_all_mp4_files(parent_folder=self.videos_folder)
-
-        for video in videos[:2] : 
-            print(f"Analysing {video} .......")
-            descript = self.analyse_video(path=video)
-
-            if descript:
-                self.video_flux_description.append(descript)
-                time.sleep(2)
-
-        video_flux = {"Video Flux Description" : self.video_flux_description}
-        data.update(video_flux)
-
-        return data
-    
+        {
+            "Iot" : self.iot_data,
+            "Workspace" : self.workspace_data,
+         }
     @retry(wait=wait_random_exponential(multiplier=1, max=40), stop=stop_after_attempt(3))
     def text_to_speech(self, text):
         return super().text_to_speech(text)
