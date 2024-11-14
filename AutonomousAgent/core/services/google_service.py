@@ -118,7 +118,7 @@ class Google:
         return msgs 
 
     
-    def get_events(self, max_results=10000):
+    def get_events(self, max_results=100):
         comingEvents = {}
         if self.calendar_service is None :
             self.calendar_service = self._Create_Service('calendar',"v3", ['https://www.googleapis.com/auth/calendar'])
