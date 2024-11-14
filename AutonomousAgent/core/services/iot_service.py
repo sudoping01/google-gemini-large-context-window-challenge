@@ -62,7 +62,7 @@ class IoT:
             self.aws_client.onOnline  = self._aws_online
             self.aws_client.connect() 
         except Exception as e :
-            pass 
+            print(e)
             
 
     def _aws_on_offline(self):
@@ -110,6 +110,7 @@ class IoT:
 
 
     def _aws_online(self):
+        print('Connected to IoT System')
         self.aws_client_status = True 
         
 
