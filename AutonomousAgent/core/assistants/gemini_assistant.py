@@ -9,7 +9,6 @@ from datetime import date, datetime
 from threading import Thread, Lock
 
 
-
 from ...core.services.handler import ServiceHandler
 from ...config.tool_config import IOT_TOOLS, GOOGLE_TOOLS, NEWS_TOOLS
 from tenacity import retry, wait_random_exponential, stop_after_attempt
@@ -17,7 +16,9 @@ from tenacity import retry, wait_random_exponential, stop_after_attempt
 
 class GoogleAgent(AssistantInterface):
     def __init__(self, service_config:Dict[str,Dict], api_key:str, model_name:str, videos_folder:str):
+        print("Init Agent ")
         self.service_handler:ServiceHandler = ServiceHandler(service_config=service_config)
+        time.sleep(60) # make sure to get all system data
         self.video_analyser: genai.GenerativeModel = None
         self.llm:genai.GenerativeModel = self.config_llm(api_key=api_key, model_name=model_name)
         self.video_flux_description:List[Dict]= []
@@ -25,13 +26,16 @@ class GoogleAgent(AssistantInterface):
         self.videos_folder = videos_folder
         self.videos_path:List[str] = []
 
-        self.video_data_lock = Lock()
+        self.video_data_lock        = Lock()
         self.iot_data_lock          = Lock()
         self.workspace_lock         = Lock()
 
         self.iot_data:Dict          = {}
         self.workspace_data:Dict    = {}
         self.video_flux_data:Dict   = {}
+
+        self._update_process()
+        self.run_deamon()
 
 
     def config_llm(self, api_key, model_name):
@@ -44,6 +48,7 @@ class GoogleAgent(AssistantInterface):
         model.send_message(context)
         return model 
     
+
     def get_all_mp4_files(self,parent_folder):
         mp4_files = []
         for root, dirs, files in os.walk(parent_folder):
@@ -53,27 +58,25 @@ class GoogleAgent(AssistantInterface):
                     mp4_files.append(full_path)
         return mp4_files
     
+
     def _update_process(self):
-        with self.iot_data_lock : 
-            self.iot_data = self.service_handler.get_all_iot_data()
-
-        with self.workspace_lock : 
-            self.workspace_data = self.service_handler.get_all_workspace_data()
-
-        with self.video_data_lock : 
-            videos = self.get_all_mp4_files(parent_folder=self.videos_folder)
-
-            for video in videos :
-                if not video in self.video_file_already_analyse: 
-                    descript = self.analyse_video(path=video)
-                    if descript:
+        
+        self.iot_data = self.service_handler.get_all_iot_data()
+        self.workspace_data = self.service_handler.get_all_workspace_data()
+        videos = self.get_all_mp4_files(parent_folder=self.videos_folder)
+        for video in videos :
+            if not video in self.video_file_already_analyse: 
+                descript = self.analyse_video(path=video)
+                if descript:
+                    with self.video_data_lock :
                         self.video_flux_data.update(descript)
-                        time.sleep(1) # being kind to the server 
-        time.sleep(1)
+                time.sleep(1) # being kind to the server 
+        time.sleep(2)
 
 
     def analyse_video(self,path: str, timeout: int = 600):
             video_path = Path(path)
+            print(f"Analysing {video_path}")
             if not video_path.exists():
                 raise FileNotFoundError(f"Video file not found at {path}")
         
@@ -132,9 +135,28 @@ class GoogleAgent(AssistantInterface):
             return None 
     
 
-    
     def run_deamon(self): # background autononous agent
-        pass 
+        while True: 
+            data = self.get_systems_data()
+            print("Print getting inference")
+            with open("test_data.json", "w") as file : 
+                json.dump(data, file)
+                file.close()
+
+            content = f"""
+                        Analyse and Decide what to do. if there is an action to do, use the necessary tool to perform that action. If there is no necessary action to do, do not do anything.
+
+                        Data : {data}
+                        """
+            
+
+            
+            response = self.invoke(query=content)
+            print(response)
+
+            time.sleep(120) #2min
+        
+
            
     def generate_tools(self, service_handler) -> list[protos.Tool]:
 
@@ -144,6 +166,8 @@ class GoogleAgent(AssistantInterface):
                     "array": protos.Type.ARRAY, 
                     "string" : protos.Type.STRING, 
                  }
+        
+        
         
         TOOLS:List = []
         tools: List[protos.Tool] = []
@@ -203,10 +227,14 @@ class GoogleAgent(AssistantInterface):
     
 
     def get_systems_data(self):
-        {
-            "Iot" : self.iot_data,
-            "Workspace" : self.workspace_data,
-         }
+        return {
+                "Iot" : self.iot_data,
+                "Workspace" : self.workspace_data,
+                "Video Flux Description" : self.video_flux_data
+            }
+
+        
+        
     @retry(wait=wait_random_exponential(multiplier=1, max=40), stop=stop_after_attempt(3))
     def text_to_speech(self, text):
         return super().text_to_speech(text)
@@ -280,13 +308,7 @@ class GoogleAgent(AssistantInterface):
 
         
 
-    def entry_point(self,query=None): 
-        data = self.get_systems_data()
-        content = f"""
-                    Analyse and Decide what to do. if there is an action to do, use the necessary tool to perform that action. If there is no necessary action to do, do not do anything.
-
-                    Data : {data}
-                    """
-        response = self.process_user_query(query=content)
+    def invoke(self,query=None): 
+        response = self.process_user_query(query=query)
         return response
     
