@@ -34,7 +34,4 @@ class AssistantInterface(ABC):
     def handle_function_calling(self,function_name, params:Dict[str, Any])-> Dict[str,Any]:
         return self.service_handler.invoke(function_name=function_name, params=params)
     
-    @abstractmethod
-    def entry_point(self,query)->str:
-        pass 
 
