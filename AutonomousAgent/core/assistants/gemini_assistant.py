@@ -9,43 +9,50 @@ from datetime import date, datetime
 from threading import Thread, Lock
 
 
-
 from ...core.services.handler import ServiceHandler
 from ...config.tool_config import IOT_TOOLS, GOOGLE_TOOLS, NEWS_TOOLS
 from tenacity import retry, wait_random_exponential, stop_after_attempt
 
 
-class GoogleAgent(AssistantInterface):
-    def __init__(self, service_config:Dict[str,Dict], api_key:str, model_name:str, videos_folder:str):
+class GoogleAgent:
+    def __init__(self, service_config:Dict[str,Dict], api_key:str, model_name:str, videos_folder:str)->None:
+        print("Init Agent ")
         self.service_handler:ServiceHandler = ServiceHandler(service_config=service_config)
+        time.sleep(60) 
         self.video_analyser: genai.GenerativeModel = None
-        self.llm:genai.GenerativeModel = self.config_llm(api_key=api_key, model_name=model_name)
-        self.video_flux_description:List[Dict]= []
+        self.llm, self.video_analyser = self.config_models(api_key=api_key, model_name=model_name)
+        self.video_flux_description:Dict[str,Dict]= {}
         self.video_file_already_analyse:List[str] = []  
         self.videos_folder = videos_folder
         self.videos_path:List[str] = []
+        self.video_data_lock        = Lock()
+        self.data_lock:Lock         = Lock()
+        self.data:Dict              = {}
+        self.iot_data:Dict[str:Any]        = {}
+        self.workspace_data:Dict[str, List]  = {"gmail": None, "calendar": None}
+        self.video_flux_data:Dict  = {}
 
-        self.video_data_lock = Lock()
-        self.iot_data_lock          = Lock()
-        self.workspace_lock         = Lock()
-
-        self.iot_data:Dict          = {}
-        self.workspace_data:Dict    = {}
-        self.video_flux_data:Dict   = {}
+        self._update_process()
+        
+        
+        #self.run_deamon()
 
 
-    def config_llm(self, api_key, model_name):
+    def config_models(self, api_key, model_name):
+        "config completion model and video_analyser"
         genai.configure(api_key=api_key)
         tools = self.generate_tools(self.service_handler)
         model = genai.GenerativeModel(model_name=model_name, tools=tools)  
-        self.video_analyser = genai.GenerativeModel(model_name=model_name)  
+        video_analyser = genai.GenerativeModel(model_name=model_name)  
         model = model.start_chat(enable_automatic_function_calling=True)
         context = self.service_handler.get_context()
         model.send_message(context)
-        return model 
+        return model, video_analyser
     
-    def get_all_mp4_files(self,parent_folder):
-        mp4_files = []
+
+    def get_all_mp4_files(self,parent_folder)->List:
+        "get all the videos file for analyse"
+        mp4_files:List = []
         for root, dirs, files in os.walk(parent_folder):
             for file in files:
                 if file.endswith('.mp4'):
@@ -53,27 +60,121 @@ class GoogleAgent(AssistantInterface):
                     mp4_files.append(full_path)
         return mp4_files
     
-    def _update_process(self):
-        with self.iot_data_lock : 
-            self.iot_data = self.service_handler.get_all_iot_data()
+    def get_iot_data(self):
+        "pull all the iot system data"
+        return self.service_handler.get_all_iot_data()
+    
+    def get_workspace_data(self):
+        "pull workspace data"
+        return  self.service_handler.get_all_workspace_data()
+    
+    def get_video_data(self):
+        "get_iot_data"
+        return self.video_flux_data if self.video_flux_data else {}
+    
 
-        with self.workspace_lock : 
-            self.workspace_data = self.service_handler.get_all_workspace_data()
+    def is_iot_updated(self):
+        "verify is the iot data is updated"
+        iot_data = self.get_iot_data()
 
-        with self.video_data_lock : 
-            videos = self.get_all_mp4_files(parent_folder=self.videos_folder)
+        if iot_data != self.iot_data: 
+            return iot_data
+        return None
+    
 
-            for video in videos :
-                if not video in self.video_file_already_analyse: 
-                    descript = self.analyse_video(path=video)
-                    if descript:
+    def is_news_mails(self):
+        "verify if there is a new|s mails"
+        workspace:Dict = self.get_workspace_data()
+        mails:Dict = workspace.get("email")
+        mails = set(mails.values())
+
+        old_mails:Dict = self.workspace_data.get("email")
+        old_mails:set = set(old_mails.values())   
+
+        news = mails - old_mails
+
+        if len(news) > 0 :
+            return news
+
+        return None 
+
+
+    def is_news_in_camera(self):
+        "verify if the video is update "
+        current_video_files =  self.get_all_mp4_files(parent_folder=self.videos_folder) # this provide all the audio file in the reference directory 
+        current_video_files = set(current_video_files)
+        video_analysed      = set(self.video_file_already_analyse)
+
+        diff = current_video_files - video_analysed
+
+        resulat = []
+
+        if diff:
+            for video in diff: 
+                resulat.append(self.video_flux_data[video])
+            return resulat
+        
+        return None 
+    
+
+    def video_update_process(self):
+        "Analyse video in background"
+        videos = self.get_all_mp4_files(parent_folder=self.videos_folder)
+        for video in videos :
+            if not video in self.video_file_already_analyse: 
+                descript = self.analyse_video(path=video)
+                if descript:
+                    with self.video_data_lock :
                         self.video_flux_data.update(descript)
-                        time.sleep(1) # being kind to the server 
-        time.sleep(1)
+                time.sleep(5) 
+
+
+    def prepare_data(self):
+        "Prepare the context for model analyse"
+        data = {}
+        iot_data = self.is_iot_updated()
+        mails    = self.is_news_mails()
+        video    = self.is_news_in_camera()
+
+        if iot_data :
+            self.iot_data = self.get_iot_data()
+            data["IoT"] = iot_data
+
+        if mails: 
+            self.video_flux_data = self.get_workspace_data()
+            data["Workspace"] = {"Email" : mails}
+
+        if video:
+            data["Video Flux"] = video
+
+        return data
+
+    def un_autonous(dself):
+        pass 
+    
+            
+
+        
+
+
+    def _update_process(self)-> None:
+        "Get system data (backgroung daemon)"
+        self.iot_data = self.service_handler.get_all_iot_data()
+        self.workspace_data = self.service_handler.get_all_workspace_data()
+        videos = self.get_all_mp4_files(parent_folder=self.videos_folder)
+        for video in videos :
+            if not video in self.video_file_already_analyse: 
+                descript = self.analyse_video(path=video)
+                if descript:
+                    with self.video_data_lock :
+                        self.video_flux_data.update(descript)
+                time.sleep(1) # being kind to the server 
+        time.sleep(2)
 
 
     def analyse_video(self,path: str, timeout: int = 600):
             video_path = Path(path)
+            print(f"Analysing {video_path}")
             if not video_path.exists():
                 raise FileNotFoundError(f"Video file not found at {path}")
         
@@ -121,7 +222,7 @@ class GoogleAgent(AssistantInterface):
                 }
 
                 
-                return description
+                return {path:description}
                 
             except Exception as e:
                 try:
@@ -132,9 +233,28 @@ class GoogleAgent(AssistantInterface):
             return None 
     
 
-    
     def run_deamon(self): # background autononous agent
-        pass 
+        while True: 
+            data = self.get_systems_data()
+            print("Print getting inference")
+            with open("test_data.json", "w") as file : 
+                json.dump(data, file)
+                file.close()
+
+            content = f"""
+                        Analyse and Decide what to do. if there is an action to do, use the necessary tool to perform that action. If there is no necessary action to do, do not do anything.
+
+                        Data : {data}
+                        """
+            
+
+            
+            response = self.invoke(query=content)
+            print(response)
+
+            time.sleep(120) #2min
+        
+
            
     def generate_tools(self, service_handler) -> list[protos.Tool]:
 
@@ -144,6 +264,8 @@ class GoogleAgent(AssistantInterface):
                     "array": protos.Type.ARRAY, 
                     "string" : protos.Type.STRING, 
                  }
+        
+        
         
         TOOLS:List = []
         tools: List[protos.Tool] = []
@@ -203,10 +325,14 @@ class GoogleAgent(AssistantInterface):
     
 
     def get_systems_data(self):
-        {
-            "Iot" : self.iot_data,
-            "Workspace" : self.workspace_data,
-         }
+        return {
+                "Iot" : self.iot_data,
+                "Workspace" : self.workspace_data,
+                "Video Flux Description" : self.video_flux_data
+            }
+
+        
+        
     @retry(wait=wait_random_exponential(multiplier=1, max=40), stop=stop_after_attempt(3))
     def text_to_speech(self, text):
         return super().text_to_speech(text)
@@ -278,15 +404,8 @@ class GoogleAgent(AssistantInterface):
             return response_content
         
 
-        
 
-    def entry_point(self,query=None): 
-        data = self.get_systems_data()
-        content = f"""
-                    Analyse and Decide what to do. if there is an action to do, use the necessary tool to perform that action. If there is no necessary action to do, do not do anything.
-
-                    Data : {data}
-                    """
-        response = self.process_user_query(query=content)
+    def invoke(self,query=None): 
+        response = self.process_user_query(query=query)
         return response
     
