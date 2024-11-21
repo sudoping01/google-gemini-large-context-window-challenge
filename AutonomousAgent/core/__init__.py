@@ -1,6 +1,6 @@
 from .assistants import GoogleAgent
 
-from .services.service_handler import ServiceHandler
+from .services import ServiceHandler
 
 __all__ = [
     "GoogleAgent",
