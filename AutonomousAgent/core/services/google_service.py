@@ -12,13 +12,40 @@ from google.auth.transport.requests import Request
 from typing import Dict, Any
 
 class Google: 
+    """
+    Google API wrapper for Gmail and Calendar services.
+
+    Handles authentication and provides methods to interact with:
+        - Gmail: send/receive emails
+        - Calendar: create/get events
+
+    Attributes:
+        mail_service: Gmail API service instance
+        calendar_service: Calendar API service instance
+        client_secret_file: Path to Google API credentials file
+    """
+
     def __init__(self, client_credentials_file_path) -> None:
           self.mail_service:Any       = None 
           self.calendar_service:Any   = None
           self.client_secret_file:str = client_credentials_file_path
           self.context:Dict[str:str]  = {"function" : "send mail, read mail and check upcoming events"}
 
-    def _Create_Service(self, api_name, api_version, *scopes, prefix=''):
+
+    def _Create_Service(self, api_name:str, api_version:str, *scopes, prefix=''):
+        """
+        Creates and authenticates a Google API service.
+
+        Args:
+            api_name: API name (ex: 'gmail', 'calendar')
+            api_version: API version (ex: 'v1', 'v3')
+            scopes: List of required permissions
+            prefix: Optional token file prefix
+        
+        Returns:
+            Google API Service or None if failed
+        """
+
         CLIENT_SECRET_FILE = self.client_secret_file
         API_SERVICE_NAME = api_name
         API_VERSION = api_version
@@ -58,9 +85,21 @@ class Google:
             return None
 
 
-    def send_email(self,to, subject, body):
+    def send_email(self,to:str, subject:str, body:str) -> bool:
+        """
+        Sends email using Gmail API.
+
+        Args:
+            to: Recipient email
+            subject: Email subject
+            body: Email content
+        
+        Returns:
+            bool: True if sent successfully, False otherwise
+        """
+
         try : 
-            if self.mail_service is None :
+            if self.mail_service is None : # checking for mail service 
                 self.mail_service = self._Create_Service('gmail',"v1",['https://mail.google.com/'])
 
             emailMsg = body
@@ -75,10 +114,18 @@ class Google:
             return False 
 
 
-    
+    def get_emails(self,max_results:int=5) -> dict:
+        """
+        Retrieves emails from Gmail inbox.
 
-    def get_emails(self,max_results=10000) -> dict:
-        if self.mail_service is None :
+        Args:
+            max_results: Maximum number of emails to fetch
+
+        Returns:
+            dict: Emails indexed by number, containing sender, subject and body
+        """
+        
+        if self.mail_service is None : # checking for mail service
             self.mail_service = self._Create_Service('gmail',"v1", ['https://mail.google.com/'])
 
         results = self.mail_service.users().messages().list(userId='me', maxResults=max_results).execute()
@@ -118,7 +165,17 @@ class Google:
         return msgs 
 
     
-    def get_events(self, max_results=10000):
+    def get_events(self, max_results=5)->dict:
+        """
+        Retrieves upcoming calendar events.
+
+        Args:
+            max_results: Maximum number of events to fetch
+
+        Returns:
+            dict: Events by index with summary and start date
+        """
+
         comingEvents = {}
         if self.calendar_service is None :
             self.calendar_service = self._Create_Service('calendar',"v3", ['https://www.googleapis.com/auth/calendar'])
@@ -140,6 +197,21 @@ class Google:
     
     
     def set_event(self, summary:str, location:str = None, description:str= None, start_time:datetime = None, end_time:datetime=None, attendees:list=None):
+        """
+        Creates a new event in Google Calendar.
+
+        Args:
+            summary: Event title
+            location: Event location
+            description: Event details
+            start_time: Event start datetime (UTC)
+            end_time: Event end datetime (UTC)
+            attendees: List of attendee email addresses
+        
+        Returns:
+            str: URL of the created event
+        """
+
         if self.calendar_service is None:
             self.calendar_service = self._Create_Service('calendar', "v3", ['https://www.googleapis.com/auth/calendar'])
 
@@ -162,3 +234,4 @@ class Google:
 
         event = self.calendar_service.events().insert(calendarId='primary', body=event).execute()
         return event.get('htmlLink')
+    
