@@ -1,4 +1,3 @@
-from ...interfaces import AssistantInterface
 import google.generativeai as genai
 from google.generativeai import protos
 import google.api_core.exceptions
@@ -21,7 +20,6 @@ class GoogleAgent:
         time.sleep(60) 
         self.video_analyser: genai.GenerativeModel = None
         self.llm, self.video_analyser = self.config_models(api_key=api_key, model_name=model_name)
-        self.video_flux_description:Dict[str,Dict]= {}
         self.video_file_already_analyse:List[str] = []  
         self.videos_folder = videos_folder
         self.videos_path:List[str] = []
@@ -32,10 +30,9 @@ class GoogleAgent:
         self.workspace_data:Dict[str, List]  = {"gmail": None, "calendar": None}
         self.video_flux_data:Dict  = {}
 
-        self._update_process()
-        
-        
+        #self._update_process()
         #self.run_deamon()
+        Thread(target=self._video_update_process).start()
 
 
     def config_models(self, api_key, model_name):
@@ -69,12 +66,14 @@ class GoogleAgent:
         return  self.service_handler.get_all_workspace_data()
     
     def get_video_data(self):
-        "get_iot_data"
+        "get video flux data"
+        print("pull video")
         return self.video_flux_data if self.video_flux_data else {}
     
 
     def is_iot_updated(self):
         "verify is the iot data is updated"
+        print("pull iot data.....")
         iot_data = self.get_iot_data()
 
         if iot_data != self.iot_data: 
@@ -84,6 +83,8 @@ class GoogleAgent:
 
     def is_news_mails(self):
         "verify if there is a new|s mails"
+        print("Pull mails.....")
+
         workspace:Dict = self.get_workspace_data()
         mails:Dict = workspace.get("email")
         mails = set(mails.values())
@@ -101,7 +102,7 @@ class GoogleAgent:
 
     def is_news_in_camera(self):
         "verify if the video is update "
-        current_video_files =  self.get_all_mp4_files(parent_folder=self.videos_folder) # this provide all the audio file in the reference directory 
+        current_video_files =  self.get_all_mp4_files(parent_folder=self.videos_folder) # this provide all the videos file in the reference directory 
         current_video_files = set(current_video_files)
         video_analysed      = set(self.video_file_already_analyse)
 
@@ -117,7 +118,7 @@ class GoogleAgent:
         return None 
     
 
-    def video_update_process(self):
+    def _video_update_process(self):
         "Analyse video in background"
         videos = self.get_all_mp4_files(parent_folder=self.videos_folder)
         for video in videos :
@@ -131,6 +132,7 @@ class GoogleAgent:
 
     def prepare_data(self):
         "Prepare the context for model analyse"
+        print("Pull data")
         data = {}
         iot_data = self.is_iot_updated()
         mails    = self.is_news_mails()
@@ -149,13 +151,15 @@ class GoogleAgent:
 
         return data
 
-    def un_autonous(dself):
-        pass 
-    
-            
+    def run_autonous(self):
+        data = self.prepare_data()
+
+        with open("data.json", "w") as file : 
+            json.dumps(data, file)
 
         
-
+    
+            
 
     def _update_process(self)-> None:
         "Get system data (backgroung daemon)"
@@ -326,10 +330,10 @@ class GoogleAgent:
 
     def get_systems_data(self):
         return {
-                "Iot" : self.iot_data,
-                "Workspace" : self.workspace_data,
-                "Video Flux Description" : self.video_flux_data
-            }
+                    "Iot" : self.iot_data,
+                    "Workspace" : self.workspace_data,
+                    "Video Flux Description" : self.video_flux_data
+              }
 
         
         
