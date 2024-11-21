@@ -1,6 +1,4 @@
 from ..models.tool_models import ParamConfig, ItemConfig, ToolConfig
-from typing import List, Dict, Any
-from google.generativeai import protos
 
 IOT_TOOLS = [
     ToolConfig(
