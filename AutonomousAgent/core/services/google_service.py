@@ -114,7 +114,7 @@ class Google:
             return False 
 
 
-    def get_emails(self,max_results:int=5) -> dict:
+    def get_emails(self,max_results:int=10) -> dict:
         """
         Retrieves emails from Gmail inbox.
 
@@ -165,7 +165,7 @@ class Google:
         return msgs 
 
     
-    def get_events(self, max_results=5)->dict:
+    def get_events(self, max_results=10)->dict:
         """
         Retrieves upcoming calendar events.
 
