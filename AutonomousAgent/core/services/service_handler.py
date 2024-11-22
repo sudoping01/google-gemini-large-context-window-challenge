@@ -189,8 +189,8 @@ class Handler:
                 time.sleep(60) #1min 
                 with self.workspace_lock : 
                     self.google_data = {
-                                        "mail": self.google_object.get_emails(max_results=1000),
-                                        "calendar": self.google_object.get_events(max_results=1000)
+                                        "mail": self.google_object.get_emails(max_results=10),
+                                        "calendar": self.google_object.get_events(max_results=10)
                                       }
                
     def get_worspace_data(self)->Dict:
