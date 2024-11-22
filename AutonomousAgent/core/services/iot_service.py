@@ -49,8 +49,8 @@ class IoT:
            
         self.context:Dict[str:str] = {"function" : "control IoT devices, check their status, do recommendation,"} # this for the ai context 
 
-        #Thread(target=self._setup).start()   
-        self._setup()        
+        Thread(target=self._setup).start()   
+        #self._setup()        
         Thread(target=self._update_system_status).start()  
 
 
@@ -70,7 +70,7 @@ class IoT:
 
         # while (not self._check_internet()):
         #     time.sleep(3)
-
+    
         try : 
             self.aws_client = AWSIoTMQTTClient(f"Iot_Action_client{'_'.join(self._iot_thing_names)}_{time.time()}") 
             self.aws_client.configureEndpoint(self._iot_endpoint, 8883)
@@ -83,7 +83,7 @@ class IoT:
             self.aws_client.onOnline  = self._aws_online
             self.aws_client.connect() 
         except Exception as e :
-            pass 
+            print(f"Exception : {e}")
             
 
     def _aws_on_offline(self):
